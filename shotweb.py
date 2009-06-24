@@ -22,10 +22,11 @@ import os
 import mmap
 
 import hmac, hashlib
-import time
+import time, calendar
 import base64
 import struct
 import logging
+import pytz
 
 from itertools import chain
 from urllib import quote
@@ -38,6 +39,9 @@ import sys
 import wsgiref.util
 
 RESPONSES = BaseHTTPRequestHandler.responses
+
+def utcnow():
+    return datetime.utcnow().replace(tzinfo=pytz.utc)
 
 class EndRequestException(Exception):
     "Raise this in a request handler to end the request and LEAP as if from guns back up to the WSGI wrapper."
@@ -544,10 +548,10 @@ def shotauth_make(secretsource, valid_duration=timedelta(days=365), name='TKT', 
             return "0" + base64.urlsafe_b64encode(self.issued_packed() + self.signed + self.payload)
     
         def validate(self):
-            return self.signed == self.signature() and ((datetime.utcnow() - self.issued) < valid_duration)
+            return self.signed == self.signature() and ((utcnow() - self.issued) < valid_duration)
     
         def issued_packed(self):
-            return struct.pack('!L', int(time.mktime(self.issued.timetuple())))
+            return struct.pack('!L', int(calendar.timegm(self.issued.utctimetuple())))
 
         def sign_str(self):
             return self.issued_packed() + self.payload
@@ -565,7 +569,7 @@ def shotauth_make(secretsource, valid_duration=timedelta(days=365), name='TKT', 
                 except TypeError:
                     # no decode, no ticket
                     return None
-                issued = datetime.fromtimestamp(struct.unpack('!L', data[:4])[0])
+                issued = datetime.utcfromtimestamp(struct.unpack('!L', data[:4])[0]).replace(tzinfo=pytz.utc)
                 signed = data[4:4+digest_size]
                 payload = data[4+digest_size:]
                 tkt = cls()
@@ -580,7 +584,7 @@ def shotauth_make(secretsource, valid_duration=timedelta(days=365), name='TKT', 
         def create(cls, payload):
             tkt = cls()
             tkt.payload = str(payload)
-            tkt.issued = datetime.utcnow()
+            tkt.issued = utcnow()
             tkt.signed = tkt.signature()
             return tkt
 
