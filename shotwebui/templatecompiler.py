@@ -158,9 +158,15 @@ def dump(code):
         print "%3d: %s" % (i+1, line)
 
 if __name__ == '__main__':
-    if '-l' in sys.argv:
+    from optparse import OptionParser
+    parser = OptionParser()
+    parser.add_option('-l', help="lex", action="store_true", dest="lex", default=False)
+    parser.add_option('-s', help="source", action="store_true", dest="source", default=False)
+    (options, args) = parser.parse_args()
+    tmpl = open(args[0], 'rt').read()
+    if options.lex:
         templateparser._lex(tmpl)
-    elif '-s' in sys.argv:
+    if options.source:
         code = generate(tmpl)
         dump(code)
     else:

@@ -9,7 +9,7 @@ class Template(object):
         self.args = args
         self.contents = contents
         self.name = name
-#        pprint.pprint((name, args, self.contents))
+        #pprint.pprint((name, args, self.contents))
         
 
     def emitFunction(self, code, name, addlargs=()):
@@ -21,9 +21,10 @@ class Template(object):
             args = self.args
         code.add("def %s(%s):", name, ",".join(args))
         code.indent()
-        code.add("return [_x(%s) for _x in (%s,)]",
-                 args[0],
-                 ",".join([item.emitCreate(code) for item in self.contents]))
+        #code.add("return [_x(%s) for _x in (%s,)]",
+        #         args[0],
+        #         ",".join([item.emitCreate(code) for item in self.contents]))
+        code.add("return [" + ",".join([item.emitCreate(code, inline=True, createargs=(args[0],)) for item in self.contents]) + "]")
         code.dedent()
 
 
@@ -38,10 +39,10 @@ class ControlRef(object):
             if attr.name == 'id' and isinstance(attr.val, LiteralExpr):
                 self.idn = attr.val.expr
 
-    def emitCreate(self, code, selfname="_"):
+    def emitCreate(self, code, selfname="_", inline=False, createargs=None):
         name = self.binding.emitResolve(code)
         if not self.attrs and not self.templates and not self.idn:
-            return name
+            return "%s(%s)" % (name, ",".join(createargs)) if inline else name
         kname = code.gensym()
         klass = code.createClass(kname, name, self.tmpl_location)
         if self.idn:
@@ -61,7 +62,10 @@ class ControlRef(object):
                             ",".join("(%s, %s)" % (repr(attr.name), attr.val.emitEvaluate(binddef)) for attr in evalattrs))
             for bind in bindattrs:
                 klass.defineBoundProperty(bind.name, bind.val, selfname, self.tmpl_location)
-        return kname
+        if inline:
+            return '%s(%s)' % (kname, ",".join(createargs))
+        else:
+            return kname
 
     def __str__(self):
         return "ControlRef(%s, %s)" % (str(self.binding),
@@ -73,8 +77,13 @@ class LiteralControlRef(object):
     def __init__(self, value):
         self.value = value
 
-    def emitCreate(self, code):
-        return code.defineLocal(LiteralControl.create(self.value))
+    def emitCreate(self, code, inline=False, createargs=None):
+        result = code.defineLocal(LiteralControl.create(self.value))
+        if inline:
+            return "%s(%s)" % (result, ",".join(createargs))
+        else:
+            return result
+        
 
     def __str__(self):
         return "LiteralControl(%s)" % repr(self.value)
@@ -85,16 +94,19 @@ class ExprControlRef(object):
     def __init__(self, expr):
         self.expr = expr
 
-    def emitCreate(self, code):
-        name = code.gensym()        
-        kdef = code.createDefn()
-        kdef.add("class %s(ExprControl):", name)
-        kdef.indent()
-        bindef = kdef.createDefn()        
-        bindef.add("def expression(__):")
-        bindef.indent()
-        bindef.add("return %s", self.expr.emitEvaluate(bindef))
-        return name
+    def emitCreate(self, code, inline=False, createargs=None):
+        if not inline:
+            name = code.gensym()        
+            kdef = code.createDefn()
+            kdef.add("class %s(ExprControl):", name)
+            kdef.indent()
+            bindef = kdef.createDefn()        
+            bindef.add("def expression(__):")
+            bindef.indent()
+            bindef.add("return %s", self.expr.emitEvaluate(bindef))
+            return name
+        else:
+            return "ExprControl(%s, expression=lambda : %s)" % (createargs[0], self.expr.emitEvaluate(code))
 
     def __str__(self):
         return "ExprControlRef(%s)" % str(self.expr)
