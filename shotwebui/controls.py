@@ -130,13 +130,11 @@ class Control(object):
 
 
 class ExprControl(Control):
-    cccount = 0
     def __init__(self, *args, **kwargs):
         if kwargs.get('expression') is not None:
             self.expression = kwargs['expression']
             del kwargs['expression']
         super(ExprControl, self).__init__(*args, **kwargs)
-        ExprControl.cccount += 1
         
     @demandprop
     def value(self):
