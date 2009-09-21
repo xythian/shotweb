@@ -158,14 +158,18 @@ def escape_if_needed(value):
     else:
         return escape(value)
 
-class LiteralControl(Control):
-    def __init__(self, parent, value='', **kw):
-        super(LiteralControl, self).__init__(parent, **kw)
+class LiteralControl(object):
+    __slots__ = ('value',)
+    def __init__(self, parent=None, value=''):
         self.value = value
+
+    def bind(self):
+        pass
         
     @classmethod
     def create(cls, text):
-        return lambda parent: cls(parent, value=text)
+        # violates contract, we'll see if this flies
+        return cls(value=text)
 
     def render(self, out):
         out.append(self.value)

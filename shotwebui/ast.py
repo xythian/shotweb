@@ -76,13 +76,13 @@ class ControlRef(object):
 class LiteralControlRef(object):
     def __init__(self, value):
         self.value = value
-
+        
     def emitCreate(self, code, inline=False, createargs=None):
-        result = code.defineLocal(LiteralControl.create(self.value))
+        text = LiteralControl.create(self.value)
         if inline:
-            return "%s(%s)" % (result, ",".join(createargs))
+            return code.defineLocal(text)
         else:
-            return result
+            return code.defineLocal(lambda parent: text)
         
 
     def __str__(self):
