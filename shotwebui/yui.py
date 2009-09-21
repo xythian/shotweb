@@ -54,7 +54,7 @@ class YuiLoaderControl(Control):
             super(YuiLoaderControl, self).render(out)
             out.append("});\n</script>")
             return
-        subs = {'loader_uri' : urljoin(self.base, "build/yuiloader/yuiloader-beta-min.js"),
+        subs = {'loader_uri' : urljoin(self.base, "build/yuiloader/yuiloader-min.js"),
                 'require' : json.dumps(list(self.tracker.depends)),
                 'base_uri' : json.dumps(urljoin(self.base, 'build/'))}
         out.append("""
