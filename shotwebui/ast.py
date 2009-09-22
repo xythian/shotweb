@@ -39,10 +39,17 @@ class ControlRef(object):
             if attr.name == 'id' and isinstance(attr.val, LiteralExpr):
                 self.idn = attr.val.expr
 
+    def emitInlineCreate(self, code,  parent='Control', createargs=()):
+        evalattrs = [attr for attr in self.attrs if not attr.bind]
+        return 'createset(%s(%s), %s)' % (parent, ",".join(createargs),
+                                          "lambda : (%s,)" % ",".join("(%s, %s)" % (repr(attr.name), attr.val.emitEvaluate(code)) for attr in evalattrs))                                          
+
     def emitCreate(self, code, selfname="_", inline=False, createargs=None):
         name = self.binding.emitResolve(code)
         if not self.attrs and not self.templates and not self.idn:
             return "%s(%s)" % (name, ",".join(createargs)) if inline else name
+        elif inline and not self.templates and not self.idn and not [attr for attr in self.attrs if attr.bind]:
+            return self.emitInlineCreate(code, createargs=createargs, parent=name)
         kname = code.gensym()
         klass = code.createClass(kname, name, self.tmpl_location)
         if self.idn:

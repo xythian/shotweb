@@ -1,8 +1,7 @@
-
-from controls import Control, ExprControl, html
-import templateparser
-import sys
-import compiler
+from __future__ import absolute_import
+from shotwebui.controls import Control, ExprControl, html
+import shotwebui.templateparser as templateparser
+import ast, sys, compiler
 
 class SymSource(object):
     def __init__(self):
@@ -108,6 +107,21 @@ def memoize(func):
         return result
     return _func
 
+class RewriteName(ast.NodeTransformer):
+    def visit_Call(self, node):
+        if isinstance(node.func, ast.Name) and node.func.id == 'ExprControl' and node.keywords and node.keywords[0].arg == 'expression':
+            #print node.func.id, node.keywords[0].value
+            return node
+        else:
+            return self.generic_visit(node)
+#    def visit_Name(self, node):
+#        return ast.copy_location(ast.Subscript(
+#            value=ast.Name(id='data', ctx=ast.Load()),
+#            slice=ast.Index(value=ast.Str(s=node.id)),
+#            ctx=node.ctx
+#            ), node)
+            
+
 def generate(template, name=None, kargs=()):
     template = templateparser.parse(template, name=name)
     code = CodeEmitter()
@@ -122,6 +136,9 @@ def generate(template, name=None, kargs=()):
     klassname = template.emitCreate(code, selfname="self")
     code.add("return %s", klassname)
     code.dedent()
+    mcode = "\n".join(code.generate())    
+    myast = ast.parse(mcode)
+    myast = RewriteName().visit(myast)
     return code
 
 def set_attr(loc=None):
@@ -129,6 +146,10 @@ def set_attr(loc=None):
         func._tmpl_location = loc
         return func
     return _wrap
+
+def createset(ctrl, attrs):
+    ctrl._template_attrs = attrs
+    return ctrl
 
 @memoize
 def compile(template, name=None, kargs=()):
@@ -138,6 +159,7 @@ def compile(template, name=None, kargs=()):
     globals.update({'ExprControl' : ExprControl,
                     'html' : html,
                     'Control' : Control,
+                    'createset' : createset,
                     'set_attr' : set_attr})
     text = list(text)
     text = "\n".join(text)
