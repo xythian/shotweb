@@ -12,6 +12,25 @@ class Template(object):
         #pprint.pprint((name, args, self.contents))
         
 
+    def emitInline(self, code, append, pname):
+        for child in self.contents:
+            child.emitCreate(code, append, pname)
+
+    def emitAppendFunction(self, code, pname):
+        name = code.gensym()
+        args = ['_out_'] 
+        args.extend(self.args)
+        code.add("def %s(%s):", name, ",".join(args))
+        code.indent()
+        #code.add("return [_x(%s) for _x in (%s,)]",
+        #         args[0],
+        #         ",".join([item.emitCreate(code) for item in self.contents]))
+        lst = code.gensym()
+        self.emitInline(code, '_out_', pname)
+        code.dedent()
+        return name
+        
+
     def emitFunction(self, code, name, addlargs=()):
         if addlargs:
             args = []
@@ -24,7 +43,10 @@ class Template(object):
         #code.add("return [_x(%s) for _x in (%s,)]",
         #         args[0],
         #         ",".join([item.emitCreate(code) for item in self.contents]))
-        code.add("return [" + ",".join([item.emitCreate(code, inline=True, createargs=(args[0],)) for item in self.contents]) + "]")
+        lst = code.gensym()
+        code.add("%s = []", lst)
+        self.emitInline(code, lst, addlargs[0])
+        code.add("return %s", lst)
         code.dedent()
 
 
@@ -39,17 +61,20 @@ class ControlRef(object):
             if attr.name == 'id' and isinstance(attr.val, LiteralExpr):
                 self.idn = attr.val.expr
 
-    def emitInlineCreate(self, code,  parent='Control', createargs=()):
-        evalattrs = [attr for attr in self.attrs if not attr.bind]
-        return 'createset(%s(%s), %s)' % (parent, ",".join(createargs),
-                                          "lambda : (%s,)" % ",".join("(%s, %s)" % (repr(attr.name), attr.val.emitEvaluate(code)) for attr in evalattrs))                                          
+    def findTemplate(self, name):
+        b = [t for t in self.templates if t.name == name]
+        if b:
+            return b[0]
+        else:
+            return None
 
-    def emitCreate(self, code, selfname="_", inline=False, createargs=None):
-        name = self.binding.emitResolve(code)
-        if not self.attrs and not self.templates and not self.idn:
-            return "%s(%s)" % (name, ",".join(createargs)) if inline else name
-        elif inline and not self.templates and not self.idn and not [attr for attr in self.attrs if attr.bind]:
-            return self.emitInlineCreate(code, createargs=createargs, parent=name)
+    def findAttribute(self, name):
+        b = [t for t in self.attrs if t.name == name]
+        return b[0] if b else None
+
+    def emitClassCreate(self, code, name=None, selfname="_"):
+        if name is None:
+            name = self.binding.emitResolve(code)            
         kname = code.gensym()
         klass = code.createClass(kname, name, self.tmpl_location)
         if self.idn:
@@ -69,10 +94,23 @@ class ControlRef(object):
                             ",".join("(%s, %s)" % (repr(attr.name), attr.val.emitEvaluate(binddef)) for attr in evalattrs))
             for bind in bindattrs:
                 klass.defineBoundProperty(bind.name, bind.val, selfname, self.tmpl_location)
-        if inline:
-            return '%s(%s)' % (kname, ",".join(createargs))
+        return kname
+
+    def emitCreate(self, code, append, pname):
+        name = self.binding.emitResolve(code)        
+        if self.binding.resolvedControl and self.binding.resolvedControl.implements_bind_create:
+            return self.binding.resolvedControl.emitBindCreate(code, self, pname=pname, append=append)
+        if not self.attrs and not self.templates and not self.idn:
+            expr = "%s(%s)" % (name, pname)            
+        elif not self.templates and not self.idn and not [attr for attr in self.attrs if attr.bind]:
+            #expr = "createset(%s(%s), lambda : (%s,))" % (name, pname, 
+            #                                             ",".join("(%s, %s)" % (repr(attr.name), attr.val.emitEvaluate(code)) for attr in self.attrs))
+            expr = "createset(%s(%s), (%s,))" % (name, pname, 
+                                                 ",".join("(%s, %s)" % (repr(attr.name), attr.val.emitEvaluate(code)) for attr in self.attrs))
         else:
-            return kname
+            kname = self.emitClassCreate(code, name=name)
+            expr = "%s(%s)" % (kname, pname)
+        code.add("%s.append(%s)", append, expr)
 
     def __str__(self):
         return "ControlRef(%s, %s)" % (str(self.binding),
@@ -84,13 +122,8 @@ class LiteralControlRef(object):
     def __init__(self, value):
         self.value = value
         
-    def emitCreate(self, code, inline=False, createargs=None):
-        text = LiteralControl.create(self.value)
-        if inline:
-            return code.defineLocal(text)
-        else:
-            return code.defineLocal(lambda parent: text)
-        
+    def emitCreate(self, code, append, pname):
+        code.add("%s.append(%s)", append, code.defineLocal(LiteralControl.create(self.value)))
 
     def __str__(self):
         return "LiteralControl(%s)" % repr(self.value)
@@ -101,19 +134,8 @@ class ExprControlRef(object):
     def __init__(self, expr):
         self.expr = expr
 
-    def emitCreate(self, code, inline=False, createargs=None):
-        if not inline:
-            name = code.gensym()        
-            kdef = code.createDefn()
-            kdef.add("class %s(ExprControl):", name)
-            kdef.indent()
-            bindef = kdef.createDefn()        
-            bindef.add("def expression(__):")
-            bindef.indent()
-            bindef.add("return %s", self.expr.emitEvaluate(bindef))
-            return name
-        else:
-            return "ExprControl(%s, expression=lambda : %s)" % (createargs[0], self.expr.emitEvaluate(code))
+    def emitCreate(self, code, append, pname):
+        code.add("%s.append(ExprControl(%s, expression=lambda : %s))", append, pname, self.expr.emitEvaluate(code))
 
     def __str__(self):
         return "ExprControlRef(%s)" % str(self.expr)
@@ -127,12 +149,21 @@ class Binding(object):
         self.bindtype = bindtype
         self.binding = binding
         self.resolved = None
+        self.resolvedControl = None
 
     def emitResolve(self, code):
         if not self.resolved:
             name = code.gensym()
-            code.root.bindings.add("%s = request.resolve_control(bindtype=%s, binding=%s)" % (
-                name, repr(self.bindtype), repr(self.binding)))
+            if self.bindtype == 'import':
+                idx = self.binding.rfind('.')
+                cmd = "from %s import %s as %s" % (self.binding[:idx], self.binding[idx+1:], name)
+                code.root.prebinds.add(cmd)
+                lcl = {}
+                exec cmd in lcl
+                self.resolvedControl = lcl[name]
+            else:
+                code.root.bindings.add("%s = request.resolve_control(bindtype=%s, binding=%s)" % (
+                    name, repr(self.bindtype), repr(self.binding)))
             self.resolved = name
         return self.resolved
 
@@ -142,6 +173,7 @@ class Binding(object):
     __repr__ = __str__
 
 class LiteralBinding(object):
+    resolvedControl = None
     def __init__(self, name):
         self.name = name
         

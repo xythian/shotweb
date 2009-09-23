@@ -128,17 +128,18 @@ def generate(template, name=None, kargs=()):
     klassname = code.gensym()
     args = ['request']
     args.extend(kargs)
+    code.prebinds = code.createDefn()
     code.add("def _resolve(%s):" % ",".join(args))
     code.indent()
     code.bindings = code.createDefn()
     for arg in template.args:
         code.add("%s = request.get_template_arg(%s)", arg, repr(arg))
-    klassname = template.emitCreate(code, selfname="self")
+    klassname = template.emitClassCreate(code, selfname="self")
     code.add("return %s", klassname)
     code.dedent()
-    mcode = "\n".join(code.generate())    
-    myast = ast.parse(mcode)
-    myast = RewriteName().visit(myast)
+    #mcode = "\n".join(code.generate())    
+    #myast = ast.parse(mcode)
+    #myast = RewriteName().visit(myast)
     return code
 
 def set_attr(loc=None):
@@ -148,7 +149,13 @@ def set_attr(loc=None):
     return _wrap
 
 def createset(ctrl, attrs):
-    ctrl._template_attrs = attrs
+    if callable(attrs):
+        ctrl._template_attrs = attrs
+    elif True:
+        ctrl._template_attrs = lambda : attrs
+    else:
+        for k, v in attrs:
+            setattr(ctrl, k, v)
     return ctrl
 
 @memoize

@@ -24,10 +24,12 @@ class IdSource(object):
         finally:
             self.count += 1
 
+
 class Control(object):
     children = ()
     container_element = None
     container_attributes = ()
+    implements_bind_create = False
 
     def __init__(self, parent, request=None):
         self.parent = parent
@@ -83,7 +85,10 @@ class Control(object):
         p = self.__class__
         while p.__name__.startswith('sym'):
             p = p.__bases__[0]
-        return p.__name__
+        if hasattr(self, '_tmpl_location'):
+            return "%s (%s)" % (p.__name__, str(self._tmpl_location))
+        else:
+            return p.__name__
 
     def template_body(self):
         return []
@@ -128,6 +133,11 @@ class Control(object):
     def render(self, out):
         self.render_element(out, self.render_children)
 
+class ControlGenerator(Control):
+    implements_bind_create = True
+    @classmethod
+    def emitBindCreate(cls, code, cref, pname=None, append=None):
+        cref.emitCreate(code, append, pname)
 
 class ExprControl(Control):
     def __init__(self, *args, **kwargs):
@@ -227,10 +237,35 @@ class PlaceholderControl(Control):
         self.children = result
         self.bind_children()
 
-class IfControl(Control):
+class IfControl(ControlGenerator):
     expr = False
 
-    def do_create_children(self):
+    @classmethod
+    def emitBindCreate(cls, code, cref, pname=None, append=None):
+        if cls is not IfControl:
+            ControlGenerator.emitBindCreate(cls, code, pname=pname, append=append)
+        body_tmpl = cref.findTemplate('body')
+        else_tmpl = cref.findTemplate('else')
+        expr = cref.findAttribute('expr')
+        if (not body_tmpl and not else_tmpl) or not expr:
+            return
+        if body_tmpl:
+            code.add("if %s:", expr.val.emitEvaluate(code))
+            code.indent()
+            body_tmpl.emitInline(code, append, pname)
+            code.dedent()
+            if else_tmpl:
+                code.add("else:")
+                code.indent()
+                else_tmpl.emitInline(code, append, pname)
+                code.dedent()
+        elif else_tmpl:
+            code.add("if not %s:", expr.val.emitEvaluate(code))
+            code.indent()
+            else_tmpl.emitInline(code, append, pname)            
+            code.dedent()
+
+    def do_create_children(self):        
         if self.expr:
             return self.template_body()
         elif hasattr(self, 'template_else'):
@@ -238,7 +273,24 @@ class IfControl(Control):
         else:
             return ()
 
-class RepeaterControl(Control):
+#    def bind(self):
+#        if not self.bound:
+#            super(IfControl, self).bind()
+
+class RepeaterControl(ControlGenerator):
+    @classmethod
+    def emitBindCreate(cls, code, cref, pname=None, append=None):
+        if cls is not RepeaterControl or not cref.findTemplate('item'):
+            ControlGenerator.emitBindCreate(cls, code, pname=pname, append=append)
+        item_tmpl = cref.findTemplate('item')
+        source = cref.findAttribute('source')
+        gsm = code.gensym()
+        funcname = item_tmpl.emitAppendFunction(code, pname)
+        code.add("for %s in %s:", gsm, source.val.emitEvaluate(code))
+        code.indent()
+        code.add("%s(%s, %s)", funcname, append, gsm)
+        code.dedent()
+    
     def template_item(self, item):
         return ()
     def create_children(self):
