@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 # package shotweb and shotwebui together for now
 setup (
     name = "shotweb",
-    version = "0.5",
+    version = "0.5.2",
     install_requires = ["wsgiref", 
                         "SimpleParse",
                         "python-cjson", 

@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 from shotwebui.controls import Control, ExprControl, html
 import shotwebui.templateparser as templateparser
-import ast, sys, compiler
+import sys, compiler
 
 class SymSource(object):
     def __init__(self):
@@ -107,13 +107,13 @@ def memoize(func):
         return result
     return _func
 
-class RewriteName(ast.NodeTransformer):
-    def visit_Call(self, node):
-        if isinstance(node.func, ast.Name) and node.func.id == 'ExprControl' and node.keywords and node.keywords[0].arg == 'expression':
-            #print node.func.id, node.keywords[0].value
-            return node
-        else:
-            return self.generic_visit(node)
+#class RewriteName(ast.NodeTransformer):
+#    def visit_Call(self, node):
+#        if isinstance(node.func, ast.Name) and node.func.id == 'ExprControl' and node.keywords and node.keywords[0].arg == 'expression':
+#            #print node.func.id, node.keywords[0].value
+#            return node
+#        else:
+#            return self.generic_visit(node)
 #    def visit_Name(self, node):
 #        return ast.copy_location(ast.Subscript(
 #            value=ast.Name(id='data', ctx=ast.Load()),
