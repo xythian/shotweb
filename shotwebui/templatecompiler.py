@@ -1,7 +1,7 @@
 from __future__ import absolute_import
 from shotwebui.controls import Control, ExprControl, html
 import shotwebui.templateparser as templateparser
-import sys, compiler
+import sys, compiler, os
 
 class SymSource(object):
     def __init__(self):
@@ -13,7 +13,7 @@ class SymSource(object):
 
 class CodeEmitter(object):
     enabled = True
-    def __init__(self, symsource=None, locals=None, root=None):
+    def __init__(self, symsource=None, locals=None, root=None, resolver=None):
         self.body = []
         self.__indent = 0
         if symsource is None:
@@ -26,8 +26,10 @@ class CodeEmitter(object):
             self.locals = locals
         if root is None:
             self.root = self
+            self.resolver = resolver
         else:
             self.root = root
+            self.resolver = root.resolver
 
     def indent(self):
         self.__indent += 3
@@ -61,9 +63,9 @@ class CodeEmitter(object):
         setter.add("%s = _v_" % expr)
         self.add("%s = property(_get_%s, _set_%s)" % (name, name, name))
         
-    def createClass(self, name, parent, loc):
+    def createClass(self, name, parents, loc):
         defn = self.createDefn()
-        defn.add("class %s(%s):" % (name, parent))
+        defn.add("class %s(%s):" % (name, ",".join(parents)))
         defn.name = name
         defn.indent()
         defn.add("_tmpl_location = %s" % self.defineLocal(loc))
@@ -122,9 +124,9 @@ def memoize(func):
 #            ), node)
             
 
-def generate(template, name=None, kargs=()):
+def generate(template, name=None, kargs=(), resolver=None):
     template = templateparser.parse(template, name=name)
-    code = CodeEmitter()
+    code = CodeEmitter(resolver=resolver)
     klassname = code.gensym()
     args = ['request']
     args.extend(kargs)
@@ -159,8 +161,8 @@ def createset(ctrl, attrs):
     return ctrl
 
 @memoize
-def compile(template, name=None, kargs=()):
-    code = generate(template, name=name, kargs=kargs)
+def compile(template, name=None, kargs=(), resolver=None):
+    code = generate(template, name=name, kargs=kargs, resolver=resolver)
     text = code.generate()
     globals = code.locals
     globals.update({'ExprControl' : ExprControl,
@@ -179,6 +181,45 @@ def compile(template, name=None, kargs=()):
     
     return func
 
+class ControlResolver(object):
+    def __init__(self, root=None):
+        self.root = root
+        self.files = {}
+
+    def resolve_control(self, bindtype='', binding='', request=None):
+        return getattr(self, 'resolve_' + bindtype)(request, binding)
+
+    def resolve_environ(self, request, binding):
+        # this could easily go awry here, there should be some .. checking
+        return request.environ[binding]
+
+    def read_file(self, name):
+        f = open(os.path.join(self.root, name), 'rt')
+        try:
+            return f.read()
+        finally:
+            f.close()
+
+    def get_template_arg(self, name):
+        return None
+
+    def resolve_file(self, request, binding):
+        if not self.root:
+            return None
+        if request is None:
+            request = self
+        binding = binding + ".ctl"
+        result = self.files.get(binding)
+        if not result:
+            data = self.read_file(binding)
+            result = compile(data, name=binding, resolver=self)
+            self.files[binding] = (result, data)
+        else:
+            result = result[0]
+        return result(request)
+
+
+
 def dump(code):
     text = code.generate()
     for key, val in code.locals.items():
@@ -191,15 +232,20 @@ if __name__ == '__main__':
     parser = OptionParser()
     parser.add_option('-l', help="lex", action="store_true", dest="lex", default=False)
     parser.add_option('-s', help="source", action="store_true", dest="source", default=False)
+    parser.add_option('-r', help="resolver", action="store", dest="resolver")
     (options, args) = parser.parse_args()
-    tmpl = open(args[0], 'rt').read()
-    if options.lex:
-        templateparser._lex(tmpl)
-    if options.source:
-        code = generate(tmpl)
-        dump(code)
+    if not options.resolver:
+        resolver = ControlResolver()
     else:
-        result = compile(tmpl)
-        print result.source
+        resolver = ControlResolver(options.resolver)
+    for tmpl in [open(arg,'rt').read() for arg in args]:
+        if options.lex:
+            templateparser._lex(tmpl)
+        if options.source:
+            code = generate(tmp, resolver=resolverl)
+            dump(code)
+        else:
+            result = compile(tmpl, resolver=resolver)
+            print result.source
 
     

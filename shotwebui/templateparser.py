@@ -11,13 +11,15 @@ DEBUG = False
 
 DEFN = """
 directives   := ws?, '<%@', directive+, '%>'
->directive<  := bind / extends / args / ws
+>directive<  := bind / extends / encases / args / ws
 bind         := c'bind', ws, 'tag', equals, qident, ws, resolve
 args         := 'args',ws, '(',ws?, (ident, (ws?, ',', ws?, ident)* )?,ws?, ')'
 <equals>     := ws?, '=', ws?
 resolve      := ident, equals, qident
 >qident<     := '"', ident, '"'
 extends      := 'extends', ws, resolve
+encases      := 'encases', ws, resolve, ws, '[', ws?, attrlist?, ws?, ']'
+attrlist     := (ws?, ident, ws?, equals, ws?, (string / varref / bindref), ws?)+
 <ws>         := [ \t\r\n]+
 ident        := [A-Za-z],[A-Za-z0-9:._]*
 """
@@ -39,23 +41,6 @@ import pprint
 
 WHITESPACE = re.compile(r'^\s+$')
 
-dirparser = Parser(DEFN, 'directives')
-
-class TemplateLocation(object):
-   def __init__(self, tmpl, lineno, beg, end, name=None):
-      self.tmpl = tmpl
-      self.lineno = lineno
-      self.name = name
-      self.beg = beg
-      self.end = end
-
-   @property
-   def line(self):
-      return self.tmpl[self.beg:self.end]
-
-   def __str__(self):
-      return "%s[%d]: %s" % (self.name, self.lineno, self.line)
-
 class REMatch:
    """An object wrapping a regular expression with __call__ (and Call) semantics"""
    def __init__( self, expression, flags=0 ):
@@ -74,6 +59,27 @@ class REMatch:
    def table( self ):
       """Build the TextTools table for the object"""
       return ( (None, Call, self ), )
+
+
+dirparser = Parser(DEFN, 'directives',prebuilts = [
+            ("varref", REMatch("<%#.+?%>").table()),
+            ("bindref", REMatch("<%&.+?%>").table())])
+
+class TemplateLocation(object):
+   def __init__(self, tmpl, lineno, beg, end, name=None):
+      self.tmpl = tmpl
+      self.lineno = lineno
+      self.name = name
+      self.beg = beg
+      self.end = end
+
+   @property
+   def line(self):
+      return self.tmpl[self.beg:self.end]
+
+   def __str__(self):
+      return "%s[%d]: %s" % (self.name, self.lineno, self.line)
+
 
 from simpleparse.dispatchprocessor import dispatch
 
@@ -107,8 +113,10 @@ class PageParser(object):
         self.dispatch = {'directives' : self.process_recurse,
                          'args' : self.process_args,
                          'extends' : self.process_extends,
+                         'encases' : self.process_encases,
                          'bind' : self.process_bind}
-        self.extends = LiteralBinding('Control')
+        self.extends = []
+        self.encases = None
         self.__stack = []
         self.line_positions = list(self.line_parse(tmpl))
         self.line_count = len(self.line_positions)
@@ -153,7 +161,19 @@ class PageParser(object):
 
     def process_extends(self, beg, end, tags):
         typ, name = self._tag(tags[0][3][0]), self._tag(tags[0][3][1])
-        self.extends = Binding('', typ, name)
+        # LiteralBinding('Control')]        
+        self.extends.append(Binding('', typ, name))
+
+    def process_encases(self, beg, end, tags):
+       typ, name = None, None
+       attrs = None
+       for tag, begin, end, parts in tags:
+          if tag == 'resolve':
+             typ, name = self._tag(parts[0]), self._tag(parts[1])
+          elif tag == 'attrlist':
+             attrs = self.parse_attrs(((tag, begin, end, parts),))
+       self.encases = Binding('', typ, name)
+       self.encases.attrs = attrs
     
     def process_args(self, beg, end, tags):
         self.args = [self._tag(tag) for tag in tags]
@@ -178,7 +198,7 @@ class PageParser(object):
             chunks.append("ctl_single_%d := '<%s',ws?,attrlist?,ws?,'/>'" % (i, name))            
             chunks.append("ctl_begin_%d := '<%s',ws?,attrlist?,ws?,'>'" % (i, name))
             chunks.append("ctl_end_%d   := '</%s>'" % (i, name))
-            disp['ctl_%d' % i] = self._make_control_parser(Binding(name, bind_type, bind_name))
+            disp['ctl_%d' % i] = self._make_control_parser([Binding(name, bind_type, bind_name)])
         ctlnames.extend(['defn_begin', 'defn_end', 'varref', 'printablechar'])
         disp['printable'] = self._make_printable
         disp['varref'] = self._make_exprcontrol
@@ -292,11 +312,11 @@ class PageParser(object):
        except KeyError:
           raise ParseException(self.name, self.to_line(beg), "Unknown tag: %s <%s>" % (self.tmpl[beg:end], tag))
 
-    def _make_control_parser(self, binding):
+    def _make_control_parser(self, binding, encases=None):
         def _parse(beg, end, parts, children):
             tmpls = []
             body = []
-            top = ControlRef(binding, attrs=self.parse_attrs(parts), templates=tmpls)
+            top = ControlRef(binding, encases=encases, attrs=self.parse_attrs(parts), templates=tmpls)
             self.push_control(top)
             top.tmpl_location = self.to_location(beg)
             for _tag, _beg, _end, _parts, _children in children:
@@ -324,7 +344,7 @@ class PageParser(object):
     def make_ast(self, tags):
         tmpls = []
         body = []
-        top = self._make_control_parser(self.extends)(0, 0, (), tags)
+        top = self._make_control_parser(self.extends, encases=self.encases)(0, 0, (), tags)
         top.args = self.args
         return top
                 

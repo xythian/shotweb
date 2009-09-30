@@ -30,6 +30,7 @@ class Control(object):
     container_element = None
     container_attributes = ()
     implements_bind_create = False
+    immediate_attribute_bind = ()
 
     def __init__(self, parent, request=None):
         self.parent = parent
@@ -242,11 +243,12 @@ class IfControl(ControlGenerator):
 
     @classmethod
     def emitBindCreate(cls, code, cref, pname=None, append=None):
-        if cls is not IfControl:
-            ControlGenerator.emitBindCreate(cls, code, pname=pname, append=append)
+        #if cls is not IfControl:
+        #    return ControlGenerator.emitBindCreate(cls, code, pname=pname, append=append)
         body_tmpl = cref.findTemplate('body')
         else_tmpl = cref.findTemplate('else')
         expr = cref.findAttribute('expr')
+        code.add("# IfControl %s:%d", cref.tmpl_location.name, cref.tmpl_location.lineno)
         if (not body_tmpl and not else_tmpl) or not expr:
             return
         if body_tmpl:
@@ -341,11 +343,14 @@ class WrapperControl(Control):
             return list(chain(self.template_prefix(), self.template_body(), self.template_suffix()))
         else:
             return self.template_body()
-    
+
+class ControlDefinitionException(Exception):
+    pass
 
 PAGE_M = re.compile(r'/page/(\d+)')
 class PaginatorControl(Control):
     __name = None
+
     def _set_name(self, name):
         setattr(self.root, name, self)
         self.__name = name
